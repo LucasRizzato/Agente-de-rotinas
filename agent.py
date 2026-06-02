@@ -1,10 +1,10 @@
 """
 Guardião — Obsidian AI Agent
-Reads the vault, generates insights with Claude, and sends them via WhatsApp.
+Reads the vault, generates insights with Claude, and sends them via Telegram.
 
 Usage:
     python agent.py                  # Run once
-    python agent.py --dry-run        # Print analysis, don't send WhatsApp
+    python agent.py --dry-run        # Print analysis, don't send Telegram
     python agent.py --vault C:/path  # Override vault path
 """
 import argparse
@@ -27,8 +27,7 @@ def _load_env():
 def _check_env(dry_run: bool):
     required = ["ANTHROPIC_API_KEY"]
     if not dry_run:
-        required += ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
-                     "TWILIO_WHATSAPP_NUMBER", "MY_WHATSAPP_NUMBER"]
+        required += ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         print(f"[ERRO] Variáveis de ambiente faltando: {', '.join(missing)}")
@@ -39,7 +38,7 @@ def _check_env(dry_run: bool):
 def run(vault_path: str, dry_run: bool = False):
     from vault_reader import read_vault
     from analyzer import analyze_vault
-    from notifier import send_whatsapp
+    from notifier import send_message
 
     stamp = datetime.now()
     print(f"\n{'='*50}")
@@ -68,11 +67,11 @@ def run(vault_path: str, dry_run: bool = False):
     print("---------------")
 
     if dry_run:
-        print("\n[DRY RUN] WhatsApp não enviado.")
+        print("\n[DRY RUN] Telegram não enviado.")
     else:
-        print("\n[3/3] Enviando WhatsApp...")
-        sids = send_whatsapp(full_message)
-        print(f"  → {len(sids)} mensagem(ns) enviada(s)")
+        print("\n[3/3] Enviando Telegram...")
+        send_message(full_message)
+        print("  → Mensagem enviada")
 
     print("\n✅ Concluído.\n")
 

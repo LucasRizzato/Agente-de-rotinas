@@ -1,40 +1,31 @@
 """
-Sends WhatsApp messages via Twilio.
+Sends messages via Telegram Bot API.
 """
+import asyncio
 import os
-from twilio.rest import Client
+
+from telegram import Bot
+from telegram.constants import ParseMode
 
 
-def _get_client() -> Client:
-    return Client(
-        os.environ["TWILIO_ACCOUNT_SID"],
-        os.environ["TWILIO_AUTH_TOKEN"],
-    )
+def _chunk(text: str, size: int = 4000) -> list[str]:
+    return [text[i : i + size] for i in range(0, len(text), size)]
 
 
-def send_whatsapp(message: str, to_number: str | None = None) -> list[str]:
-    """
-    Send a WhatsApp message, splitting into chunks if needed.
-    Numbers must be in E.164 format: +5511999999999
-    Returns list of sent message SIDs.
-    """
-    client = _get_client()
-    from_number = f"whatsapp:{os.environ['TWILIO_WHATSAPP_NUMBER']}"
-    to_number = f"whatsapp:{to_number or os.environ['MY_WHATSAPP_NUMBER']}"
+async def _send_async(token: str, chat_id: str, message: str):
+    async with Bot(token) as bot:
+        chunks = _chunk(message)
+        for i, chunk in enumerate(chunks):
+            prefix = f"*[{i + 1}/{len(chunks)}]*\n" if len(chunks) > 1 else ""
+            await bot.send_message(
+                chat_id=chat_id,
+                text=prefix + chunk,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            print(f"  → Mensagem {i + 1}/{len(chunks)} enviada")
 
-    # WhatsApp practical limit for Twilio is ~1600 chars per message
-    chunk_size = 1500
-    chunks = [message[i : i + chunk_size] for i in range(0, len(message), chunk_size)]
 
-    sids = []
-    for i, chunk in enumerate(chunks):
-        prefix = f"[{i + 1}/{len(chunks)}]\n" if len(chunks) > 1 else ""
-        msg = client.messages.create(
-            body=prefix + chunk,
-            from_=from_number,
-            to=to_number,
-        )
-        sids.append(msg.sid)
-        print(f"  → Mensagem {i + 1}/{len(chunks)} enviada: {msg.sid}")
-
-    return sids
+def send_message(message: str, chat_id: str | None = None):
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    chat_id = chat_id or os.environ["TELEGRAM_CHAT_ID"]
+    asyncio.run(_send_async(token, chat_id, message))
