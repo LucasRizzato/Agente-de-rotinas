@@ -81,14 +81,17 @@ def is_relevant_attachment(filename: str) -> bool:
 
 
 def _numeric_filename_number(filename: str) -> str | None:
-    """Se o nome do arquivo (sem extensão) for só dígitos e não parecer um
-    ano, usa isso como número da nota — comum em sistemas de emissão que já
-    nomeiam o arquivo com o número (ex: '98464.pdf')."""
+    """Se o nome do arquivo (sem extensão) for só dígitos, curto o bastante
+    para ser um número de nota (não a chave de acesso de 44 dígitos da NFe)
+    e não parecer um ano, usa isso como número da nota — comum em sistemas
+    de emissão que já nomeiam o arquivo com o número (ex: '98464.pdf')."""
     stem = re.sub(r"\.[A-Za-z0-9]+$", "", filename)
     stem = re.sub(r"[\s_\-]+", "", stem)
-    if stem.isdigit() and not _YEAR_RE.fullmatch(stem):
-        return stem.lstrip("0") or stem
-    return None
+    if not stem.isdigit() or not (1 <= len(stem) <= 10):
+        return None
+    if _YEAR_RE.fullmatch(stem):
+        return None
+    return stem.lstrip("0") or stem
 
 
 def extract_invoice_number(subject: str, body: str, filenames: list[str]) -> str:
