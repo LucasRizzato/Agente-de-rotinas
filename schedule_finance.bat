@@ -15,12 +15,14 @@ echo.
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
 
 :: Cria nova tarefa
+:: (sem /ru: assim ela roda com o usuario atual sem exigir senha salva —
+:: usar /ru sem /rp faz a tarefa parecer criada com sucesso mas falhar
+:: silenciosamente toda vez que tenta disparar)
 schtasks /create ^
   /tn "%TASK_NAME%" ^
   /tr "\"%SCRIPT_PATH%\"" ^
   /sc HOURLY ^
   /st 08:00 ^
-  /ru "%USERNAME%" ^
   /rl HIGHEST ^
   /f
 
@@ -38,5 +40,10 @@ echo       ajuste em Agendador de Tarefas ^> %TASK_NAME% ^> Disparadores se quis
 echo.
 echo Para ver a tarefa: Agendador de Tarefas ^> Biblioteca ^> %TASK_NAME%
 echo Para executar agora: schtasks /run /tn "%TASK_NAME%"
+echo.
+echo Status atual da tarefa ^(depois que ela rodar, confira o campo
+echo "Ultimo Resultado/Last Result": deve ser 0 - qualquer outro numero
+echo e erro^):
+schtasks /query /tn "%TASK_NAME%" /v /fo LIST
 echo.
 pause
