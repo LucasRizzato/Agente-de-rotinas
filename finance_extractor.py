@@ -32,10 +32,11 @@ _DATE_PATTERNS = [
 
 _YEAR_RE = re.compile(r"^(19|20)\d{2}$")
 
-# Documentos que de fato costumam ser a nota/boleto em si. Imagens só contam
-# quando o nome sugere boleto/comprovante — do contrário quase sempre são
-# logo/assinatura de e-mail, não o documento fiscal.
-_DOCUMENT_EXTENSIONS = {".pdf", ".xml"}
+# Documentos que de fato costumam ser a nota/boleto em si. Só PDF — o Lucas
+# não precisa do XML da NFe. Imagens só contam quando o nome sugere
+# boleto/comprovante — do contrário quase sempre são logo/assinatura de
+# e-mail, não o documento fiscal.
+_DOCUMENT_EXTENSIONS = {".pdf"}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 _BOLETO_HINT_RE = re.compile(r"boleto|comprovante|recibo", re.I)
 
