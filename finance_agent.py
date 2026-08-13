@@ -30,6 +30,7 @@ from finance_extractor import (
     extract_invoice_number,
     extract_sender_name,
     is_boleto_filename,
+    is_relevant_attachment,
     month_folder_name,
 )
 from spreadsheet import (
@@ -70,6 +71,21 @@ def _max_results() -> int:
     return int(os.environ.get("GMAIL_MAX_RESULTS", "50"))
 
 
+def _unique_path(folder: Path, filename: str) -> Path:
+    """Evita sobrescrever silenciosamente quando dois anexos calculam o
+    mesmo nome de arquivo (ex: mesmo colaborador, número da nota repetido)."""
+    candidate = folder / filename
+    if not candidate.exists():
+        return candidate
+    stem, ext = Path(filename).stem, Path(filename).suffix
+    n = 2
+    while True:
+        candidate = folder / f"{stem} ({n}){ext}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 # ── Regra 1: colaboradores PJ ────────────────────────────────────────────────
 
 def process_pj_inbox(service, dry_run: bool) -> int:
@@ -86,7 +102,10 @@ def process_pj_inbox(service, dry_run: bool) -> int:
     for stub in messages:
         message = gmail_client.get_message(service, stub["id"])
         info = gmail_client.message_summary(message)
-        attachments = gmail_client.list_attachments(message)
+        attachments = [
+            a for a in gmail_client.list_attachments(message)
+            if is_relevant_attachment(a["filename"])
+        ]
 
         received = extract_email_received_date(info["date"])
         month_folder = month_folder_name(received)
@@ -101,25 +120,30 @@ def process_pj_inbox(service, dry_run: bool) -> int:
         body = gmail_client.get_body_text(message)
 
         if not attachments:
-            print(f"  [AVISO] Sem anexo: '{info['subject']}' de {colaborador} — marcado para verificação")
+            print(f"  [AVISO] Sem anexo relevante: '{info['subject']}' de {colaborador} — marcado para verificação")
             append_row(
                 wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
                 numero_nota="VERIFICAR",
-                observacoes="E-mail sem anexo — verificar manualmente",
+                observacoes="E-mail sem anexo (PDF/XML) — verificar manualmente",
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
         else:
+            numero = extract_invoice_number(
+                info["subject"], body, [a["filename"] for a in attachments]
+            )
+            obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
+
             for attachment in attachments:
-                numero = extract_invoice_number(info["subject"], body, attachment["filename"])
                 ext = Path(attachment["filename"]).suffix or ".pdf"
                 filename = build_pj_filename(colaborador, numero, ext)
-                obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
 
                 print(f"  → PJ: {colaborador} | {month_folder} | {filename}")
                 if not dry_run:
                     folder.mkdir(parents=True, exist_ok=True)
+                    target = _unique_path(folder, filename)
                     data = gmail_client.download_attachment(service, info["id"], attachment["attachment_id"])
-                    (folder / filename).write_bytes(data)
+                    target.write_bytes(data)
+                    filename = target.name
 
                 append_row(
                     wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
@@ -151,7 +175,10 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
     for stub in messages:
         message = gmail_client.get_message(service, stub["id"])
         info = gmail_client.message_summary(message)
-        attachments = gmail_client.list_attachments(message)
+        attachments = [
+            a for a in gmail_client.list_attachments(message)
+            if is_relevant_attachment(a["filename"])
+        ]
 
         received = extract_email_received_date(info["date"])
         fornecedor = extract_sender_name(info["from"])
@@ -167,16 +194,16 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             continue
 
         if not attachments:
-            print(f"  [AVISO] Sem anexo: '{info['subject']}' de {fornecedor} — marcado para verificação")
+            print(f"  [AVISO] Sem anexo relevante: '{info['subject']}' de {fornecedor} — marcado para verificação")
             append_row(
                 wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
                 numero_nota="VERIFICAR",
-                observacoes="E-mail sem anexo — verificar manualmente",
+                observacoes="E-mail sem anexo (PDF/XML) — verificar manualmente",
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
         else:
             numero = extract_invoice_number(
-                info["subject"], body, *[a["filename"] for a in attachments]
+                info["subject"], body, [a["filename"] for a in attachments]
             )
             nf_filename = ""
             boleto_filename = ""
@@ -189,8 +216,10 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
                 print(f"  → Fornecedor: {fornecedor} | {month_folder} | {filename}")
                 if not dry_run:
                     folder.mkdir(parents=True, exist_ok=True)
+                    target = _unique_path(folder, filename)
                     data = gmail_client.download_attachment(service, info["id"], attachment["attachment_id"])
-                    (folder / filename).write_bytes(data)
+                    target.write_bytes(data)
+                    filename = target.name
 
                 if is_boleto:
                     boleto_filename = filename

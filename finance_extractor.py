@@ -30,6 +30,15 @@ _DATE_PATTERNS = [
     re.compile(r"data[:\s]*?(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", re.I),
 ]
 
+_YEAR_RE = re.compile(r"^(19|20)\d{2}$")
+
+# Documentos que de fato costumam ser a nota/boleto em si. Imagens só contam
+# quando o nome sugere boleto/comprovante — do contrário quase sempre são
+# logo/assinatura de e-mail, não o documento fiscal.
+_DOCUMENT_EXTENSIONS = {".pdf", ".xml"}
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+_BOLETO_HINT_RE = re.compile(r"boleto|comprovante|recibo", re.I)
+
 
 def sanitize_filename(name: str) -> str:
     name = _INVALID_FILENAME_CHARS.sub("", name).strip()
@@ -42,32 +51,63 @@ def month_folder_name(dt: datetime) -> str:
 
 
 def extract_sender_name(from_header: str) -> str:
-    """'Fulano de Tal <fulano@empresa.com>' -> 'Fulano de Tal'"""
+    """'Fulano de Tal <fulano@empresa.com>' -> 'Fulano de Tal'
+
+    Também limpa o formato que o Gmail usa para envios via sistemas
+    automáticos de emissão de nota, ex: '"\\'Fulano de Tal\\' via NFE" <...>'
+    vira só 'Fulano de Tal'.
+    """
     match = re.match(r"^\s*\"?([^\"<]+?)\"?\s*<", from_header)
     if match:
         name = match.group(1).strip()
     else:
         name = from_header.split("@")[0].strip()
+    name = re.sub(r"\s+via\s+\S.*$", "", name, flags=re.I).strip()
+    name = name.strip("'\" ")
     name = name if name else "VERIFICAR"
     return sanitize_filename(name)
 
 
-def extract_invoice_number(*texts: str) -> str:
-    """Procura o número da nota no assunto, corpo e nome(s) de arquivo, nessa ordem."""
-    for text in texts:
+def is_relevant_attachment(filename: str) -> bool:
+    """Filtra anexos que provavelmente são a nota/boleto de fato, descartando
+    logos de assinatura de e-mail, .txt/.csv de sistemas automáticos etc."""
+    suffix = re.search(r"(\.[A-Za-z0-9]+)$", filename)
+    ext = suffix.group(1).lower() if suffix else ""
+    if ext in _DOCUMENT_EXTENSIONS:
+        return True
+    if ext in _IMAGE_EXTENSIONS:
+        return bool(_BOLETO_HINT_RE.search(filename))
+    return False
+
+
+def _numeric_filename_number(filename: str) -> str | None:
+    """Se o nome do arquivo (sem extensão) for só dígitos e não parecer um
+    ano, usa isso como número da nota — comum em sistemas de emissão que já
+    nomeiam o arquivo com o número (ex: '98464.pdf')."""
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", filename)
+    stem = re.sub(r"[\s_\-]+", "", stem)
+    if stem.isdigit() and not _YEAR_RE.fullmatch(stem):
+        return stem.lstrip("0") or stem
+    return None
+
+
+def extract_invoice_number(subject: str, body: str, filenames: list[str]) -> str:
+    """Procura o número da nota no assunto, corpo e nome(s) de arquivo, nessa
+    ordem. Descarta matches que sejam só um ano (ex: '2026' vindo de "NF
+    Agosto 2026") para não confundir ano com número da nota."""
+    for text in (subject, body, *filenames):
         if not text:
             continue
         for pattern in _NOTA_PATTERNS:
             match = pattern.search(text)
             if match:
-                return match.group(1).lstrip("0") or match.group(1)
-    # Último recurso: sequência de 3-8 dígitos isolada no nome do arquivo/assunto
-    for text in texts:
-        if not text:
-            continue
-        match = re.search(r"(?<!\d)(\d{3,8})(?!\d)", text)
-        if match:
-            return match.group(1)
+                number = match.group(1)
+                if not _YEAR_RE.fullmatch(number):
+                    return number.lstrip("0") or number
+    for filename in filenames:
+        number = _numeric_filename_number(filename)
+        if number:
+            return number
     return "VERIFICAR"
 
 
