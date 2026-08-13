@@ -22,7 +22,7 @@ if not exist "%~dp0.env" (
     copy "%~dp0.env.example" "%~dp0.env"
 ) else (
     echo [2/4] Arquivo .env ja existe. Confira se as variaveis abaixo estao
-    echo       preenchidas (compare com .env.example):
+    echo       preenchidas ^(compare com .env.example^):
     echo         GMAIL_CREDENTIALS_PATH, GMAIL_TOKEN_PATH,
     echo         PJ_INBOX_ADDRESS, FORNECEDOR_INBOX_ADDRESS,
     echo         PJ_NOTAS_BASE_PATH, FORNECEDOR_NOTAS_BASE_PATH,
@@ -30,23 +30,23 @@ if not exist "%~dp0.env" (
 )
 
 echo.
-echo [3/4] Credenciais do Gmail (OAuth):
+echo [3/4] Credenciais do Gmail ^(OAuth^):
 echo   a. Acesse https://console.cloud.google.com/ e crie/selecione um projeto
-echo   b. Ative a "Gmail API" (APIs ^& Services ^> Library)
+echo   b. Ative a "Gmail API" ^(APIs ^& Services ^> Library^)
 echo   c. Crie uma credencial OAuth do tipo "App para Computador"
-echo      (APIs ^& Services ^> Credentials ^> Create Credentials)
+echo      ^(APIs ^& Services ^> Credentials ^> Create Credentials^)
 echo   d. Baixe o JSON e salve como "credentials.json" nesta pasta
-echo      (ou aponte GMAIL_CREDENTIALS_PATH no .env para o caminho escolhido)
+echo      ^(ou aponte GMAIL_CREDENTIALS_PATH no .env para o caminho escolhido^)
 echo.
 echo   ** IMPORTANTE ** Preencha tambem no .env:
 echo      - ANTHROPIC_API_KEY
-echo      - TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID (rode python bot.py e envie /start)
+echo      - TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID ^(rode python bot.py e envie /start^)
 echo      - Os caminhos das pastas de notas fiscais e da planilha de controle
 echo.
 pause
 
 echo.
-echo [4/4] Testando conexao com o Gmail (dry-run, abre o navegador p/ login)...
+echo [4/4] Testando conexao com o Gmail ^(dry-run, abre o navegador p/ login^)...
 python "%~dp0finance_agent.py" --dry-run
 
 echo.

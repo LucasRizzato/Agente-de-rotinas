@@ -33,8 +33,8 @@ if errorlevel 1 (
 echo.
 echo [OK] Tarefa agendada com sucesso!
 echo      Para alterar o horario, edite este arquivo e execute novamente.
-echo      (O Agendador do Windows nao limita horario final facilmente;
-echo       ajuste em Agendador de Tarefas ^> %TASK_NAME% ^> Disparadores se quiser.)
+echo      ^(O Agendador do Windows nao limita horario final facilmente;
+echo       ajuste em Agendador de Tarefas ^> %TASK_NAME% ^> Disparadores se quiser.^)
 echo.
 echo Para ver a tarefa: Agendador de Tarefas ^> Biblioteca ^> %TASK_NAME%
 echo Para executar agora: schtasks /run /tn "%TASK_NAME%"
