@@ -41,9 +41,9 @@ from spreadsheet import (
     save,
 )
 
-LABEL_PJ_PROCESSADA = "Guardiao/NF-PJ-Processada"
-LABEL_FORNECEDOR_PROCESSADA = "Guardiao/NF-Fornecedor-Processada"
-LABEL_DIVERSOS_REVISADO = "Guardiao/Revisado"
+LABEL_PJ_PROCESSADA = "Guardiao-NF-PJ-Processada"
+LABEL_FORNECEDOR_PROCESSADA = "Guardiao-NF-Fornecedor-Processada"
+LABEL_DIVERSOS_REVISADO = "Guardiao-Revisado"
 
 
 def _load_env():
@@ -78,6 +78,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
     sheet_path = os.environ["CONTROL_SHEET_PATH"]
 
     query = f'to:{address} -label:"{LABEL_PJ_PROCESSADA}"'
+    print(f"  → busca no Gmail: {query}")
     messages = gmail_client.list_messages(service, query, _max_results())
     print(f"  → {len(messages)} e-mail(s) novo(s) em {address}")
 
@@ -142,6 +143,7 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
     sheet_path = os.environ["CONTROL_SHEET_PATH"]
 
     query = f'to:{address} -label:"{LABEL_FORNECEDOR_PROCESSADA}"'
+    print(f"  → busca no Gmail: {query}")
     messages = gmail_client.list_messages(service, query, _max_results())
     print(f"  → {len(messages)} e-mail(s) novo(s) em {address}")
 
@@ -224,6 +226,7 @@ def process_diversos(service, dry_run: bool) -> tuple[int, int]:
         f'in:inbox -to:{pj_address} -to:{fornecedor_address} '
         f'-label:"{LABEL_DIVERSOS_REVISADO}"'
     )
+    print(f"  → busca no Gmail: {query}")
     messages = gmail_client.list_messages(service, query, _max_results())
     print(f"  → {len(messages)} e-mail(s) novo(s) para triagem")
 
