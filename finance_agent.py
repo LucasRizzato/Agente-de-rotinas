@@ -354,6 +354,23 @@ def process_diversos(service, dry_run: bool) -> tuple[int, int]:
 
 # ── Main ──────────────────────────────────────────────────────────────────
 
+def _run_routine(nome: str, fn):
+    """Roda uma rotina isolada das outras: se uma falhar (ex: planilha
+    aberta no Excel, erro de rede), as outras duas continuam rodando
+    normalmente em vez do programa inteiro parar."""
+    try:
+        fn()
+    except PermissionError as e:
+        print(
+            f"  [ERRO] Não foi possível abrir a planilha de controle — ela "
+            f"provavelmente está aberta no Excel (ou outro programa) agora. "
+            f"Feche o arquivo; esta rotina tenta de novo na próxima execução."
+        )
+        print(f"          Detalhe técnico: {e}")
+    except Exception as e:
+        print(f"  [ERRO] {nome} falhou de forma inesperada: {e}")
+
+
 def run(dry_run: bool, only: str):
     service = gmail_client.get_service()
     stamp = datetime.now()
@@ -363,15 +380,15 @@ def run(dry_run: bool, only: str):
 
     if only in ("all", "pj"):
         print("\n[1/3] Notas fiscais de colaboradores PJ...")
-        process_pj_inbox(service, dry_run)
+        _run_routine("Notas fiscais de colaboradores PJ", lambda: process_pj_inbox(service, dry_run))
 
     if only in ("all", "fornecedores"):
         print("\n[2/3] Notas e boletos de fornecedores...")
-        process_fornecedor_inbox(service, dry_run)
+        _run_routine("Notas e boletos de fornecedores", lambda: process_fornecedor_inbox(service, dry_run))
 
     if only in ("all", "diversos"):
         print("\n[3/3] Triagem de assuntos diversos...")
-        process_diversos(service, dry_run)
+        _run_routine("Triagem de assuntos diversos", lambda: process_diversos(service, dry_run))
 
     if dry_run:
         print("\n[DRY RUN] Nenhum arquivo, planilha, label ou mensagem foi alterado.")
