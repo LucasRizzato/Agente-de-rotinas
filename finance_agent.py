@@ -141,7 +141,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
             print(f"  [AVISO] Sem anexo relevante: '{info['subject']}' de {colaborador} — marcado para verificação")
             append_row(
                 wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
-                numero_nota="VERIFICAR",
+                numero_nota="VERIFICAR", data_recebimento=received,
                 observacoes="E-mail sem anexo (PDF/XML) — verificar manualmente",
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
@@ -172,7 +172,8 @@ def process_pj_inbox(service, dry_run: bool) -> int:
 
                 append_row(
                     wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
-                    numero_nota=numero, mes_emissao=month_folder, arquivo_nf=filename,
+                    numero_nota=numero, data_recebimento=received,
+                    mes_emissao=month_folder, arquivo_nf=filename,
                     observacoes=obs, assunto=info["subject"], gmail_message_id=info["id"],
                 )
 
@@ -219,7 +220,7 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             print(f"  [AVISO] Sem anexo relevante: '{info['subject']}' de {fornecedor} — marcado para verificação")
             append_row(
                 wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
-                numero_nota="VERIFICAR",
+                numero_nota="VERIFICAR", data_recebimento=received,
                 observacoes="E-mail sem anexo (PDF/XML) — verificar manualmente",
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
@@ -259,7 +260,8 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
             append_row(
                 wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
-                numero_nota=numero, mes_emissao=mes_emissao, arquivo_nf=nf_filename,
+                numero_nota=numero, data_recebimento=received,
+                mes_emissao=mes_emissao, arquivo_nf=nf_filename,
                 arquivo_boleto=boleto_filename, observacoes=obs,
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
