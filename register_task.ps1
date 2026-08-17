@@ -14,8 +14,11 @@ try {
     $action = New-ScheduledTaskAction -Execute $batPath -WorkingDirectory $scriptDir
 
     $startTime = Get-Date -Hour 8 -Minute 0 -Second 0
+    # O Agendador de Tarefas rejeita [TimeSpan]::MaxValue (gera uma duração
+    # fora do intervalo aceito pelo schema XML dele). 10 anos já cobre
+    # qualquer uso real como "repete pra sempre".
     $trigger = New-ScheduledTaskTrigger -Once -At $startTime `
-        -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration ([TimeSpan]::MaxValue)
+        -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
 
     $settings = New-ScheduledTaskSettingsSet `
         -Hidden `
