@@ -49,6 +49,7 @@ pause
 
 echo.
 echo [4/4] Testando conexao com o Gmail ^(dry-run, abre o navegador p/ login^)...
+set PYTHONIOENCODING=utf-8
 python "%~dp0finance_agent.py" --dry-run
 
 echo.

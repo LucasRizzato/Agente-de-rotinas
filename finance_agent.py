@@ -19,6 +19,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Quando a saída não vai para um console de verdade (ex: redirecionada para
+# um arquivo de log pelo run_finance.bat, como acontece na tarefa agendada),
+# o Windows usa a codificação antiga do sistema (cp1252) em vez de UTF-8, que
+# não sabe representar caracteres como "→" usados nas mensagens — e quebra a
+# execução inteira com UnicodeEncodeError antes de fazer qualquer trabalho.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from dotenv import load_dotenv
 
 import gmail_client

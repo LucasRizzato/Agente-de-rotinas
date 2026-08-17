@@ -18,6 +18,13 @@ if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set LOG_DATE=%%i
 set LOG_FILE=%LOG_DIR%\financeiro_%LOG_DATE%.log
 
+:: Força o Python a usar UTF-8 na saída — sem isso, redirecionar a saída
+:: para um arquivo (como estamos fazendo aqui) faz o Windows usar uma
+:: codificação antiga que não sabe representar os caracteres usados nas
+:: mensagens, e quebra tudo com UnicodeEncodeError antes de processar
+:: qualquer e-mail.
+set PYTHONIOENCODING=utf-8
+
 echo Iniciando Agente Financeiro Perinity... >> "%LOG_FILE%"
 python "%~dp0finance_agent.py" >> "%LOG_FILE%" 2>&1
 echo. >> "%LOG_FILE%"
