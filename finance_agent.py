@@ -26,13 +26,14 @@ from finance_extractor import (
     build_fornecedor_filename,
     build_pj_filename,
     extract_email_received_date,
-    extract_emission_date,
     extract_invoice_number,
+    extract_reference_period,
     extract_sender_name,
     is_boleto_filename,
     is_relevant_attachment,
     month_folder_name,
 )
+from pdf_reader import extract_pdf_text
 from spreadsheet import (
     CATEGORIA_FORNECEDOR,
     CATEGORIA_PJ,
@@ -69,6 +70,24 @@ def _check_env(dry_run: bool):
 
 def _max_results() -> int:
     return int(os.environ.get("GMAIL_MAX_RESULTS", "50"))
+
+
+def _download_attachments(service, message_id: str, attachments: list[dict]) -> dict:
+    """Baixa todos os anexos de uma vez (precisamos do conteúdo do PDF antes
+    de decidir em qual pasta de mês ele vai — não só na hora de gravar)."""
+    return {
+        a["filename"]: gmail_client.download_attachment(service, message_id, a["attachment_id"])
+        for a in attachments
+    }
+
+
+def _first_pdf_text(attachments: list[dict], attachment_data: dict) -> str:
+    for a in attachments:
+        if a["filename"].lower().endswith(".pdf"):
+            text = extract_pdf_text(attachment_data[a["filename"]])
+            if text:
+                return text
+    return ""
 
 
 def _unique_path(folder: Path, filename: str) -> Path:
@@ -108,9 +127,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
         ]
 
         received = extract_email_received_date(info["date"])
-        month_folder = month_folder_name(received)
         colaborador = extract_sender_name(info["from"])
-        folder = Path(base_path) / month_folder
 
         wb = load_or_create(sheet_path)
         if already_logged(wb, info["id"]):
@@ -120,6 +137,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
         body = gmail_client.get_body_text(message)
 
         if not attachments:
+            month_folder = month_folder_name(received)
             print(f"  [AVISO] Sem anexo relevante: '{info['subject']}' de {colaborador} — marcado para verificação")
             append_row(
                 wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
@@ -128,8 +146,16 @@ def process_pj_inbox(service, dry_run: bool) -> int:
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
         else:
+            # baixa antes de decidir a pasta: o mês vem de dentro da nota
+            attachment_data = _download_attachments(service, info["id"], attachments)
+            pdf_text = _first_pdf_text(attachments, attachment_data)
+
+            referencia = extract_reference_period(pdf_text, info["subject"], body, fallback=received)
+            month_folder = month_folder_name(referencia)
+            folder = Path(base_path) / month_folder
+
             numero = extract_invoice_number(
-                info["subject"], body, [a["filename"] for a in attachments]
+                info["subject"], body, [a["filename"] for a in attachments], pdf_text=pdf_text
             )
             obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
 
@@ -141,8 +167,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
                 if not dry_run:
                     folder.mkdir(parents=True, exist_ok=True)
                     target = _unique_path(folder, filename)
-                    data = gmail_client.download_attachment(service, info["id"], attachment["attachment_id"])
-                    target.write_bytes(data)
+                    target.write_bytes(attachment_data[attachment["filename"]])
                     filename = target.name
 
                 append_row(
@@ -183,10 +208,6 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
         received = extract_email_received_date(info["date"])
         fornecedor = extract_sender_name(info["from"])
         body = gmail_client.get_body_text(message)
-        emissao = extract_emission_date(info["subject"], body, fallback=received)
-        month_folder = month_folder_name(received)
-        mes_emissao = month_folder_name(emissao)
-        folder = Path(base_path) / month_folder
 
         wb = load_or_create(sheet_path)
         if already_logged(wb, info["id"]):
@@ -194,6 +215,7 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             continue
 
         if not attachments:
+            month_folder = month_folder_name(received)
             print(f"  [AVISO] Sem anexo relevante: '{info['subject']}' de {fornecedor} — marcado para verificação")
             append_row(
                 wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
@@ -202,8 +224,17 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
                 assunto=info["subject"], gmail_message_id=info["id"],
             )
         else:
+            # baixa antes de decidir a pasta: o mês vem de dentro da nota
+            attachment_data = _download_attachments(service, info["id"], attachments)
+            pdf_text = _first_pdf_text(attachments, attachment_data)
+
+            referencia = extract_reference_period(pdf_text, info["subject"], body, fallback=received)
+            month_folder = month_folder_name(referencia)
+            mes_emissao = month_folder
+            folder = Path(base_path) / month_folder
+
             numero = extract_invoice_number(
-                info["subject"], body, [a["filename"] for a in attachments]
+                info["subject"], body, [a["filename"] for a in attachments], pdf_text=pdf_text
             )
             nf_filename = ""
             boleto_filename = ""
@@ -217,8 +248,7 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
                 if not dry_run:
                     folder.mkdir(parents=True, exist_ok=True)
                     target = _unique_path(folder, filename)
-                    data = gmail_client.download_attachment(service, info["id"], attachment["attachment_id"])
-                    target.write_bytes(data)
+                    target.write_bytes(attachment_data[attachment["filename"]])
                     filename = target.name
 
                 if is_boleto:

@@ -18,6 +18,9 @@ MESES_PT = [
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 _NOTA_PATTERNS = [
+    # "Número da Nota: 12345" / "Nº da NFS-e 12345" — o rótulo mais comum
+    # dentro do próprio PDF da nota (DANFE/NFS-e)
+    re.compile(r"(?:n[uú]mero|n[ºo°])\s*(?:da\s+)?(?:nota|nf-?e?|nfs-?e)\S*\s*[:\-]?\s*(\d{2,10})", re.I),
     re.compile(r"nota\s*fiscal\s*(?:eletr[ôo]nica)?\s*n?[ºo°.:]*\s*(\d{2,10})", re.I),
     re.compile(r"\bnf-?e?\s*n?[ºo°.:]*\s*(\d{2,10})", re.I),
     re.compile(r"\bn[ºo°]\s*(\d{2,10})", re.I),
@@ -31,6 +34,31 @@ _DATE_PATTERNS = [
 ]
 
 _YEAR_RE = re.compile(r"^(19|20)\d{2}$")
+
+_MES_NUM = {
+    "janeiro": 1, "fevereiro": 2, "marco": 3, "março": 3, "abril": 4,
+    "maio": 5, "junho": 6, "julho": 7, "agosto": 8, "setembro": 9,
+    "outubro": 10, "novembro": 11, "dezembro": 12,
+}
+
+# Padrões que indicam o mês/período a que a nota SE REFERE — geralmente
+# diferente da data de emissão ou de recebimento do e-mail, e o que
+# realmente importa para separar as pastas por competência.
+_COMPETENCIA_PATTERNS = [
+    re.compile(r"compet[eê]ncia\s*[:\-]?\s*(\d{1,2})[/\-](\d{4})", re.I),
+    re.compile(
+        r"per[ií]odo\s+de\s+presta[cç][aã]o\s+de\s+servi[cç]os?\s*[:\-]?\s*"
+        r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})",
+        re.I,
+    ),
+    re.compile(r"referente\s+(?:a|à|ao)\s*[:\-]?\s*(\d{1,2})[/\-](\d{4})", re.I),
+]
+
+_MES_NOME_RE = re.compile(
+    r"\b(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|"
+    r"outubro|novembro|dezembro)(?:\s*(?:de|/)?\s*(\d{4}))?\b",
+    re.I,
+)
 
 # Documentos que de fato costumam ser a nota/boleto em si. Só PDF — o Lucas
 # não precisa do XML da NFe. Imagens só contam quando o nome sugere
@@ -95,11 +123,13 @@ def _numeric_filename_number(filename: str) -> str | None:
     return stem.lstrip("0") or stem
 
 
-def extract_invoice_number(subject: str, body: str, filenames: list[str]) -> str:
-    """Procura o número da nota no assunto, corpo e nome(s) de arquivo, nessa
-    ordem. Descarta matches que sejam só um ano (ex: '2026' vindo de "NF
-    Agosto 2026") para não confundir ano com número da nota."""
-    for text in (subject, body, *filenames):
+def extract_invoice_number(
+    subject: str, body: str, filenames: list[str], pdf_text: str = ""
+) -> str:
+    """Procura o número da nota no assunto, corpo, texto do PDF e nome(s) de
+    arquivo, nessa ordem. Descarta matches que sejam só um ano (ex: '2026'
+    vindo de "NF Agosto 2026") para não confundir ano com número da nota."""
+    for text in (subject, body, pdf_text, *filenames):
         if not text:
             continue
         for pattern in _NOTA_PATTERNS:
@@ -122,10 +152,47 @@ def extract_email_received_date(date_header: str) -> datetime:
         return datetime.now()
 
 
-def extract_emission_date(*texts: str, fallback: datetime) -> datetime:
-    """Tenta achar a data de emissão da nota no corpo do e-mail; usa a data de
-    recebimento do e-mail como fallback."""
-    for text in texts:
+def extract_reference_period(pdf_text: str, subject: str, body: str, *, fallback: datetime) -> datetime:
+    """Descobre o mês/ano a que a nota SE REFERE (competência), priorizando o
+    texto lido de dentro do PDF — que é a própria nota — sobre o assunto e o
+    corpo do e-mail. Cai na data de recebimento do e-mail só se nada for
+    encontrado (ex: PDF escaneado sem texto, ou nota sem essa informação).
+    """
+    texts_in_priority = (pdf_text, subject, body)
+
+    # 1) Padrões explícitos de competência/período/"referente a"
+    for text in texts_in_priority:
+        if not text:
+            continue
+        for pattern in _COMPETENCIA_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                groups = match.groups()
+                month, year = (groups[0], groups[1]) if len(groups) == 2 else (groups[1], groups[2])
+                try:
+                    month_i, year_i = int(month), int(year)
+                    if year_i < 100:
+                        year_i += 2000
+                    if 1 <= month_i <= 12:
+                        return datetime(year_i, month_i, 1)
+                except ValueError:
+                    continue
+
+    # 2) Nome do mês escrito por extenso (ex: "referente a Agosto/2026",
+    #    ou simplesmente "NF Agosto" no assunto)
+    for text in texts_in_priority:
+        if not text:
+            continue
+        match = _MES_NOME_RE.search(text)
+        if match:
+            month_i = _MES_NUM.get(match.group(1).lower())
+            year_i = int(match.group(2)) if match.group(2) else fallback.year
+            if month_i:
+                return datetime(year_i, month_i, 1)
+
+    # 3) Data de emissão explícita (menos confiável que competência, mas
+    #    melhor que só a data de recebimento do e-mail)
+    for text in texts_in_priority:
         if not text:
             continue
         for pattern in _DATE_PATTERNS:
@@ -138,6 +205,7 @@ def extract_emission_date(*texts: str, fallback: datetime) -> datetime:
                     return datetime(int(year), int(month), int(day))
                 except ValueError:
                     continue
+
     return fallback
 
 
