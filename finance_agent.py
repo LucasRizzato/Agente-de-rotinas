@@ -294,6 +294,8 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
 # ── Regra 3: assuntos diversos que exigem ação ───────────────────────────────
 
 def process_diversos(service, dry_run: bool) -> tuple[int, int]:
+    import anthropic
+
     from email_classifier import classify_email
     from notifier import send_message
 
@@ -315,7 +317,18 @@ def process_diversos(service, dry_run: bool) -> tuple[int, int]:
         info = gmail_client.message_summary(message)
         body = gmail_client.get_body_text(message)
 
-        result = classify_email(info["subject"], info["from"], info["to"], body)
+        try:
+            result = classify_email(info["subject"], info["from"], info["to"], body)
+        except anthropic.AuthenticationError:
+            print(
+                "  [ERRO] Chave da Anthropic invalida/revogada — parando a triagem de "
+                "assuntos diversos aqui (confira ANTHROPIC_API_KEY no .env). "
+                "As notas fiscais de PJ e fornecedores ja processadas continuam válidas."
+            )
+            break
+        except Exception as e:
+            print(f"  [AVISO] Falha ao classificar '{info['subject']}': {e} — pulando, tenta de novo na próxima execução")
+            continue
         scanned += 1
 
         if result["precisa_acao"]:
