@@ -10,24 +10,40 @@ echo  Agendando tarefa: %TASK_NAME%
 echo  Horario: a cada hora, das 08:00 as 19:00
 echo ============================================
 echo.
+echo Esta tarefa precisa rodar em segundo plano de verdade ^(mesmo com a
+echo tela bloqueada, sem depender de voce estar logado no momento exato^),
+echo entao o Windows vai pedir a sua senha do computador agora para
+echo guardar de forma protegida no proprio Agendador de Tarefas ^(essa
+echo senha NAO fica gravada em nenhum arquivo deste agente^).
+echo.
+echo Quando aparecer "Type the password for user ...", digite sua senha
+echo normal do Windows e aperte Enter ^(a digitacao nao aparece na tela,
+echo isso e normal^).
+echo.
+pause
 
 :: Remove tarefa antiga se existir
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
 
-:: Cria nova tarefa
-:: (sem /ru: assim ela roda com o usuario atual sem exigir senha salva —
-:: usar /ru sem /rp faz a tarefa parecer criada com sucesso mas falhar
-:: silenciosamente toda vez que tenta disparar)
+:: Cria nova tarefa. /rp * faz o Windows pedir a senha na hora, mascarada,
+:: e guardar com seguranca no Agendador — sem isso ("Interativo apenas"),
+:: a tarefa so roda com uma janela visivel e com a sessao ativa, e morre
+:: com erro (STATUS_CONTROL_C_EXIT) se a janela for fechada, a tela travar
+:: ou o notebook estiver na bateria nesse horario.
 schtasks /create ^
   /tn "%TASK_NAME%" ^
   /tr "\"%SCRIPT_PATH%\"" ^
   /sc HOURLY ^
   /st 08:00 ^
+  /ru "%USERNAME%" ^
+  /rp * ^
   /rl HIGHEST ^
   /f
 
 if errorlevel 1 (
-    echo [ERRO] Falha ao criar tarefa. Execute como Administrador.
+    echo [ERRO] Falha ao criar tarefa. Confira se:
+    echo   - Voce executou este arquivo como Administrador
+    echo   - Digitou a senha do Windows corretamente quando foi pedida
     pause
     exit /b 1
 )
