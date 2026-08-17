@@ -41,7 +41,7 @@ def classify_email(subject: str, sender: str, to: str, body_snippet: str) -> dic
     )
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         max_tokens=300,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": payload}],

@@ -15,12 +15,21 @@ from googleapiclient.errors import HttpError
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
+def _resolve_path(value: str) -> Path:
+    """Caminhos relativos são resolvidos a partir da pasta deste arquivo, não
+    da pasta de trabalho atual — que pode não ser a pasta do agente quando
+    ele roda via Agendador de Tarefas do Windows (o padrão lá é
+    C:\\Windows\\System32)."""
+    path = Path(value)
+    return path if path.is_absolute() else Path(__file__).parent / path
+
+
 def _credentials_path() -> Path:
-    return Path(os.environ.get("GMAIL_CREDENTIALS_PATH", "credentials.json"))
+    return _resolve_path(os.environ.get("GMAIL_CREDENTIALS_PATH", "credentials.json"))
 
 
 def _token_path() -> Path:
-    return Path(os.environ.get("GMAIL_TOKEN_PATH", "token.json"))
+    return _resolve_path(os.environ.get("GMAIL_TOKEN_PATH", "token.json"))
 
 
 def get_service():
@@ -126,35 +135,48 @@ def message_summary(message: dict) -> dict:
 def _walk_parts(payload: dict):
     if not payload:
         return
-    if payload.get("filename") and payload.get("body", {}).get("attachmentId"):
+    body = payload.get("body", {})
+    # Anexos pequenos vêm com o conteúdo já embutido em body.data; só os
+    # maiores exigem uma segunda chamada via attachmentId. Sem checar os
+    # dois casos, anexos pequenos (ex: um boleto de poucos KB) somem
+    # silenciosamente, como se o e-mail não tivesse anexo nenhum.
+    if payload.get("filename") and (body.get("attachmentId") or body.get("data")):
         yield payload
     for part in payload.get("parts", []) or []:
         yield from _walk_parts(part)
 
 
 def list_attachments(message: dict) -> list[dict]:
-    """Retorna [{filename, mime_type, attachment_id}] para cada anexo da mensagem."""
+    """Retorna [{filename, mime_type, attachment_id, inline_data}] para cada
+    anexo da mensagem. attachment_id é None quando o conteúdo já veio
+    embutido em inline_data (anexos pequenos)."""
     attachments = []
     for part in _walk_parts(message.get("payload", {})):
+        body = part.get("body", {})
         attachments.append(
             {
                 "filename": part["filename"],
                 "mime_type": part.get("mimeType", "application/octet-stream"),
-                "attachment_id": part["body"]["attachmentId"],
+                "attachment_id": body.get("attachmentId"),
+                "inline_data": body.get("data"),
             }
         )
     return attachments
 
 
-def download_attachment(service, message_id: str, attachment_id: str) -> bytes:
-    attachment = (
+def download_attachment(service, message_id: str, attachment: dict) -> bytes:
+    """Baixa o conteúdo de um anexo — usa o dado já embutido quando presente
+    (anexo pequeno) para evitar uma chamada de API desnecessária."""
+    if attachment.get("inline_data"):
+        return base64.urlsafe_b64decode(attachment["inline_data"])
+    result = (
         service.users()
         .messages()
         .attachments()
-        .get(userId="me", messageId=message_id, id=attachment_id)
+        .get(userId="me", messageId=message_id, id=attachment["attachment_id"])
         .execute()
     )
-    return base64.urlsafe_b64decode(attachment["data"])
+    return base64.urlsafe_b64decode(result["data"])
 
 
 def get_body_text(message: dict) -> str:

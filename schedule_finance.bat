@@ -1,4 +1,6 @@
 @echo off
+cd /d "%~dp0"
+
 :: Adiciona o Agente Financeiro Perinity ao Agendador de Tarefas do Windows
 :: Executa a cada hora em horario comercial (08h as 19h)
 

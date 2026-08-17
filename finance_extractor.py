@@ -17,13 +17,17 @@ MESES_PT = [
 
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
+_NOTA_FISCAL_LABEL = r"(?:nota\s*fiscal(?:\s+de\s+servi[cç]os)?(?:\s+eletr[ôo]nica)?|nfs?-?e)"
+_NUM_LABEL = r"(?:n[uú]mero|n[ºo°])"
+
 _NOTA_PATTERNS = [
-    # "Número da Nota: 12345" / "Nº da NFS-e 12345" — o rótulo mais comum
-    # dentro do próprio PDF da nota (DANFE/NFS-e)
-    re.compile(r"(?:n[uú]mero|n[ºo°])\s*(?:da\s+)?(?:nota|nf-?e?|nfs-?e)\S*\s*[:\-]?\s*(\d{2,10})", re.I),
-    re.compile(r"nota\s*fiscal\s*(?:eletr[ôo]nica)?\s*n?[ºo°.:]*\s*(\d{2,10})", re.I),
-    re.compile(r"\bnf-?e?\s*n?[ºo°.:]*\s*(\d{2,10})", re.I),
-    re.compile(r"\bn[ºo°]\s*(\d{2,10})", re.I),
+    # "Número da Nota: 12345" / "Número da Nota Fiscal de Serviços
+    # Eletrônica: 999" / "Nº da NFS-e: 998" — como a nota se identifica
+    re.compile(
+        rf"{_NUM_LABEL}\s*(?:da\s+)?(?:nota|{_NOTA_FISCAL_LABEL})\s*[:\-]?\s*(\d{{2,10}})", re.I
+    ),
+    # "Nota Fiscal de Serviços Eletrônica nº 771" / "NFS-e 12345" / "NF-e nº X"
+    re.compile(rf"{_NOTA_FISCAL_LABEL}\s*{_NUM_LABEL}?\s*[:\-.]?\s*(\d{{2,10}})", re.I),
     re.compile(r"\binvoice\s*(?:number|#)?\s*[:\-]?\s*(\d{2,10})", re.I),
 ]
 
@@ -54,10 +58,22 @@ _COMPETENCIA_PATTERNS = [
     re.compile(r"referente\s+(?:a|à|ao)\s*[:\-]?\s*(\d{1,2})[/\-](\d{4})", re.I),
 ]
 
-_MES_NOME_RE = re.compile(
-    r"\b(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|"
-    r"outubro|novembro|dezembro)(?:\s*(?:de|/)?\s*(\d{4}))?\b",
-    re.I,
+_MES_NOME_ALT = (
+    r"(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|"
+    r"outubro|novembro|dezembro)(?:\s*(?:de|/)?\s*(\d{4}))?"
+)
+
+# Mês por extenso "solto" (ex: "NF Julho" no assunto) — só é seguro usar em
+# textos curtos e focados como o assunto do e-mail. Num texto longo como o
+# PDF da nota ou o corpo do e-mail, a primeira menção de mês costuma ser a
+# data de emissão ou de vencimento, não a competência.
+_MES_NOME_RE = re.compile(rf"\b{_MES_NOME_ALT}\b", re.I)
+
+# Mês por extenso com uma palavra-chave de competência por perto (ex:
+# "referente ao mês de Julho de 2026") — esse sim é seguro usar em qualquer
+# texto, incluindo o PDF, porque a palavra-chave deixa a intenção clara.
+_MES_NOME_QUALIFICADO_RE = re.compile(
+    rf"(?:referente|compet[eê]ncia|per[ií]odo)\D{{0,20}}{_MES_NOME_ALT}", re.I
 )
 
 # Documentos que de fato costumam ser a nota/boleto em si. Só PDF — o Lucas
@@ -178,12 +194,24 @@ def extract_reference_period(pdf_text: str, subject: str, body: str, *, fallback
                 except ValueError:
                     continue
 
-    # 2) Nome do mês escrito por extenso (ex: "referente a Agosto/2026",
-    #    ou simplesmente "NF Agosto" no assunto)
+    # 2a) Nome do mês por extenso com palavra-chave de competência por perto
+    #     (ex: "referente ao mês de Agosto/2026") — seguro em qualquer texto
     for text in texts_in_priority:
         if not text:
             continue
-        match = _MES_NOME_RE.search(text)
+        match = _MES_NOME_QUALIFICADO_RE.search(text)
+        if match:
+            month_i = _MES_NUM.get(match.group(1).lower())
+            year_i = int(match.group(2)) if match.group(2) else fallback.year
+            if month_i:
+                return datetime(year_i, month_i, 1)
+
+    # 2b) Nome do mês "solto" (ex: "NF Agosto" no assunto) — só no assunto do
+    #     e-mail, que é curto e focado na própria nota. No corpo do e-mail ou
+    #     no texto do PDF (longos) isso arriscaria pegar a data de emissão ou
+    #     de vencimento em vez da competência.
+    if subject:
+        match = _MES_NOME_RE.search(subject)
         if match:
             month_i = _MES_NUM.get(match.group(1).lower())
             year_i = int(match.group(2)) if match.group(2) else fallback.year
@@ -223,4 +251,8 @@ def build_fornecedor_filename(
 
 
 def is_boleto_filename(filename: str) -> bool:
-    return bool(re.search(r"boleto", filename, re.I))
+    """Mesmo critério de is_relevant_attachment para imagem (boleto/
+    comprovante/recibo) — sem isso, um comprovante em imagem passava pelo
+    filtro de anexo relevante mas depois era tratado como se fosse a nota
+    fiscal em si, em vez do boleto/comprovante."""
+    return bool(_BOLETO_HINT_RE.search(filename))

@@ -76,7 +76,7 @@ def _download_attachments(service, message_id: str, attachments: list[dict]) -> 
     """Baixa todos os anexos de uma vez (precisamos do conteúdo do PDF antes
     de decidir em qual pasta de mês ele vai — não só na hora de gravar)."""
     return {
-        a["filename"]: gmail_client.download_attachment(service, message_id, a["attachment_id"])
+        a["filename"]: gmail_client.download_attachment(service, message_id, a)
         for a in attachments
     }
 
@@ -117,6 +117,11 @@ def process_pj_inbox(service, dry_run: bool) -> int:
     messages = gmail_client.list_messages(service, query, _max_results())
     print(f"  → {len(messages)} e-mail(s) novo(s) em {address}")
 
+    # Carrega a planilha uma única vez para toda a rotina, não a cada
+    # e-mail — reabrir e reler um .xlsx que só cresce, 50 vezes por
+    # execução, fica cada vez mais lento (e ainda mais estando no OneDrive).
+    wb = load_or_create(sheet_path)
+
     processed = 0
     for stub in messages:
         message = gmail_client.get_message(service, stub["id"])
@@ -129,7 +134,6 @@ def process_pj_inbox(service, dry_run: bool) -> int:
         received = extract_email_received_date(info["date"])
         colaborador = extract_sender_name(info["from"])
 
-        wb = load_or_create(sheet_path)
         if already_logged(wb, info["id"]):
             gmail_client.mark_processed(service, info["id"], LABEL_PJ_PROCESSADA)
             continue
@@ -197,6 +201,10 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
     messages = gmail_client.list_messages(service, query, _max_results())
     print(f"  → {len(messages)} e-mail(s) novo(s) em {address}")
 
+    # Carrega a planilha uma única vez para toda a rotina — ver comentário
+    # equivalente em process_pj_inbox.
+    wb = load_or_create(sheet_path)
+
     processed = 0
     for stub in messages:
         message = gmail_client.get_message(service, stub["id"])
@@ -208,12 +216,12 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
 
         received = extract_email_received_date(info["date"])
         fornecedor = extract_sender_name(info["from"])
-        body = gmail_client.get_body_text(message)
 
-        wb = load_or_create(sheet_path)
         if already_logged(wb, info["id"]):
             gmail_client.mark_processed(service, info["id"], LABEL_FORNECEDOR_PROCESSADA)
             continue
+
+        body = gmail_client.get_body_text(message)
 
         if not attachments:
             month_folder = month_folder_name(received)
