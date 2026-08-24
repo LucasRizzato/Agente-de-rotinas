@@ -41,7 +41,23 @@ _YEAR_RE = re.compile(r"^(19|20)\d{2}$")
 
 # Valor monetário no formato brasileiro: 1.234,56 / 234,56 / 1234
 _VALOR_NUM = r"(\d+(?:\.\d{3})*(?:,\d{2})?)"
-_VALOR_LIQUIDO_RE = re.compile(rf"valor\s*l[ií]quido[^\d\n]{{0,30}}{_VALOR_NUM}", re.I)
+
+# Cada layout de NFS-e (varia de prefeitura para prefeitura) rotula o valor
+# a receber de um jeito diferente — "Valor Líquido", "Valor a Receber",
+# "Valor Total do Serviço"... Em ordem de confiança: prefere um rótulo que
+# diga explicitamente "líquido"/"a receber" sobre um "total" genérico, que
+# em alguns modelos pode incluir impostos ainda não descontados.
+_VALOR_LABELS = [
+    r"valor\s*l[ií]quido(?:\s*d[ao]\s*nfs?-?e)?",
+    r"(?:valor\s*)?(?:a\s*receber|l[ií]quido\s*a\s*receber)",
+    r"total\s*l[ií]quido",
+    r"valor\s*total\s*(?:d[ao]\s*servi[cç]os?|d[ao]\s*nfs?-?e)?",
+]
+# [^\d] (em vez de [^\d\n]) porque em muitos modelos o valor vem numa linha
+# separada do rótulo, não colado nela.
+_VALOR_LIQUIDO_PATTERNS = [
+    re.compile(rf"{label}[^\d]{{0,40}}{_VALOR_NUM}", re.I) for label in _VALOR_LABELS
+]
 
 _MES_NUM = {
     "janeiro": 1, "fevereiro": 2, "marco": 3, "março": 3, "abril": 4,
@@ -191,11 +207,12 @@ def extract_valor_liquido(pdf_text: str, subject: str = "", body: str = "") -> f
     for text in (pdf_text, subject, body):
         if not text:
             continue
-        match = _VALOR_LIQUIDO_RE.search(text)
-        if match:
-            valor = _parse_brl_number(match.group(1))
-            if valor is not None:
-                return valor
+        for pattern in _VALOR_LIQUIDO_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                valor = _parse_brl_number(match.group(1))
+                if valor is not None:
+                    return valor
     return None
 
 
