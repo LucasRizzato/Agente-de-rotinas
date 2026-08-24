@@ -3,6 +3,8 @@ Planilha de controle (.xlsx) de notas fiscais — colaboradores PJ e
 fornecedores compartilham a mesma planilha, diferenciados pela coluna
 "Categoria".
 """
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -98,5 +100,17 @@ def append_row(
 
 
 def save(wb: Workbook, path: str):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    wb.save(path)
+    """Grava num arquivo temporário e só troca pelo definitivo no final
+    (operação atômica). Se o processo for interrompido no meio da gravação
+    (encerrado à força, computador desligado, etc.), o arquivo antigo
+    continua íntegro em vez de ficar corrompido pela metade."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx", dir=target.parent)
+    os.close(fd)
+    try:
+        wb.save(tmp_path)
+        os.replace(tmp_path, target)
+    except Exception:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
