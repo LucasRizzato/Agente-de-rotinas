@@ -31,10 +31,14 @@ _NOTA_PATTERNS = [
     re.compile(r"\binvoice\s*(?:number|#)?\s*[:\-]?\s*(\d{2,10})", re.I),
 ]
 
+# Só datas explicitamente rotuladas como emissão. Existia uma 3ª regra
+# genérica ("data" + qualquer data) que casava com QUALQUER campo de data
+# do PDF — inclusive "Data de Vencimento", que cai um mês depois da
+# emissão. Removida: é melhor cair na data de recebimento do e-mail do
+# que arriscar pegar o vencimento achando que é a emissão.
 _DATE_PATTERNS = [
-    re.compile(r"emiss[ãa]o[:\s]*?(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", re.I),
+    re.compile(r"emiss[ãa]o[^\d\n]{0,30}(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", re.I),
     re.compile(r"emitid[ao]\s+em\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", re.I),
-    re.compile(r"data[:\s]*?(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", re.I),
 ]
 
 _YEAR_RE = re.compile(r"^(19|20)\d{2}$")
