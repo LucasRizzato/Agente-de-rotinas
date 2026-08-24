@@ -52,10 +52,28 @@ def _new_workbook() -> Workbook:
     return wb
 
 
+def _migrate_if_needed(wb: Workbook):
+    """Se a planilha já existia de antes de alguma coluna nova ser
+    adicionada ao agente (ex: Valor Líquido), insere a coluna faltante sem
+    perder os dados já preenchidos manualmente (ex: Status Pagamento)."""
+    ws = wb["Controle"]
+    header = [c.value for c in ws[1]]
+    if header == COLUMNS:
+        return
+    if "Valor Líquido" not in header:
+        ws.insert_cols(_VALOR_LIQUIDO_COL)
+        cell = ws.cell(row=1, column=_VALOR_LIQUIDO_COL, value="Valor Líquido")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
+        ws.column_dimensions[get_column_letter(_VALOR_LIQUIDO_COL)].width = max(14, len("Valor Líquido") + 4)
+
+
 def load_or_create(path: str) -> Workbook:
     sheet_path = Path(path)
     if sheet_path.exists():
-        return load_workbook(sheet_path)
+        wb = load_workbook(sheet_path)
+        _migrate_if_needed(wb)
+        return wb
     sheet_path.parent.mkdir(parents=True, exist_ok=True)
     return _new_workbook()
 
