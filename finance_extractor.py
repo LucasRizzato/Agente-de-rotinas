@@ -39,6 +39,10 @@ _DATE_PATTERNS = [
 
 _YEAR_RE = re.compile(r"^(19|20)\d{2}$")
 
+# Valor monetário no formato brasileiro: 1.234,56 / 234,56 / 1234
+_VALOR_NUM = r"(\d+(?:\.\d{3})*(?:,\d{2})?)"
+_VALOR_LIQUIDO_RE = re.compile(rf"valor\s*l[ií]quido[^\d\n]{{0,30}}{_VALOR_NUM}", re.I)
+
 _MES_NUM = {
     "janeiro": 1, "fevereiro": 2, "marco": 3, "março": 3, "abril": 4,
     "maio": 5, "junho": 6, "julho": 7, "agosto": 8, "setembro": 9,
@@ -159,6 +163,40 @@ def extract_invoice_number(
         if number:
             return number
     return "VERIFICAR"
+
+
+def _parse_brl_number(raw: str) -> float | None:
+    """'1.234,56' -> 1234.56. Detecta o formato pelo separador mais à
+    direita (esse é sempre o decimal); se só houver um tipo de separador,
+    assume vírgula como decimal (padrão brasileiro)."""
+    s = raw.strip()
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return round(float(s), 2)
+    except ValueError:
+        return None
+
+
+def extract_valor_liquido(pdf_text: str, subject: str = "", body: str = "") -> float | None:
+    """Procura o valor líquido da nota no texto do PDF (prioridade) e,
+    como fallback, no assunto/corpo do e-mail. Retorna None quando não
+    encontra — melhor deixar a célula em branco do que arriscar um valor
+    errado numa coluna que o Lucas provavelmente vai somar."""
+    for text in (pdf_text, subject, body):
+        if not text:
+            continue
+        match = _VALOR_LIQUIDO_RE.search(text)
+        if match:
+            valor = _parse_brl_number(match.group(1))
+            if valor is not None:
+                return valor
+    return None
 
 
 def extract_email_received_date(date_header: str) -> datetime:

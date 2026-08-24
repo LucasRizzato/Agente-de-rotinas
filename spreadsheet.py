@@ -17,6 +17,7 @@ COLUMNS = [
     "Mês",
     "Nome",
     "Número da Nota",
+    "Valor Líquido",
     "Mês de Emissão",
     "Data de Recebimento",
     "Arquivo NF",
@@ -26,6 +27,9 @@ COLUMNS = [
     "Assunto do E-mail",
     "Gmail Message ID",
 ]
+
+_VALOR_LIQUIDO_COL = COLUMNS.index("Valor Líquido") + 1
+_VALOR_LIQUIDO_FORMAT = "R$ #,##0.00"
 
 CATEGORIA_PJ = "Colaborador PJ"
 CATEGORIA_FORNECEDOR = "Fornecedor"
@@ -73,6 +77,7 @@ def append_row(
     nome: str,
     numero_nota: str,
     data_recebimento: datetime,
+    valor_liquido: float | None = None,
     mes_emissao: str = "",
     arquivo_nf: str = "",
     arquivo_boleto: str = "",
@@ -87,6 +92,7 @@ def append_row(
             mes_pasta,
             nome,
             numero_nota,
+            valor_liquido,
             mes_emissao,
             data_recebimento.strftime("%d/%m/%Y %H:%M"),
             arquivo_nf,
@@ -97,6 +103,8 @@ def append_row(
             gmail_message_id,
         ]
     )
+    if valor_liquido is not None:
+        ws.cell(row=ws.max_row, column=_VALOR_LIQUIDO_COL).number_format = _VALOR_LIQUIDO_FORMAT
 
 
 def save(wb: Workbook, path: str):

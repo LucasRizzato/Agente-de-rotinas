@@ -38,6 +38,7 @@ from finance_extractor import (
     extract_invoice_number,
     extract_reference_period,
     extract_sender_name,
+    extract_valor_liquido,
     is_boleto_filename,
     is_relevant_attachment,
     month_folder_name,
@@ -170,6 +171,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
             numero = extract_invoice_number(
                 info["subject"], body, [a["filename"] for a in attachments], pdf_text=pdf_text
             )
+            valor_liquido = extract_valor_liquido(pdf_text, info["subject"], body)
             obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
 
             for attachment in attachments:
@@ -185,7 +187,7 @@ def process_pj_inbox(service, dry_run: bool) -> int:
 
                 append_row(
                     wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
-                    numero_nota=numero, data_recebimento=received,
+                    numero_nota=numero, valor_liquido=valor_liquido, data_recebimento=received,
                     mes_emissao=month_folder, arquivo_nf=filename,
                     observacoes=obs, assunto=info["subject"], gmail_message_id=info["id"],
                 )
@@ -254,6 +256,7 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             numero = extract_invoice_number(
                 info["subject"], body, [a["filename"] for a in attachments], pdf_text=pdf_text
             )
+            valor_liquido = extract_valor_liquido(pdf_text, info["subject"], body)
             nf_filename = ""
             boleto_filename = ""
 
@@ -277,7 +280,7 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
             append_row(
                 wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
-                numero_nota=numero, data_recebimento=received,
+                numero_nota=numero, valor_liquido=valor_liquido, data_recebimento=received,
                 mes_emissao=mes_emissao, arquivo_nf=nf_filename,
                 arquivo_boleto=boleto_filename, observacoes=obs,
                 assunto=info["subject"], gmail_message_id=info["id"],
