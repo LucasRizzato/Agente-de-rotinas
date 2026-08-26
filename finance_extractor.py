@@ -108,6 +108,66 @@ _DOCUMENT_EXTENSIONS = {".pdf"}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 _BOLETO_HINT_RE = re.compile(r"boleto|comprovante|recibo", re.I)
 
+# ── Reconhecimento do conteúdo do PDF ───────────────────────────────────
+# A extensão .pdf sozinha não diz nada: contrato, proposta, apresentação e
+# assinatura de e-mail também são PDF. Estes marcadores identificam o que é
+# de fato um documento fiscal, olhando o texto de dentro do arquivo.
+
+_NOTA_MARCADORES = [
+    re.compile(r"nota\s*fiscal", re.I),
+    re.compile(r"\bnfs?-?e\b", re.I),
+    re.compile(r"danfe", re.I),
+    re.compile(r"recibo\s+provis[óo]rio\s+de\s+servi[cç]os", re.I),  # RPS
+    re.compile(r"\brps\b", re.I),
+]
+
+# Um documento fiscal de serviço praticamente sempre tem prestador/tomador
+# ou menção ao ISS — reforça a identificação e evita falso positivo de um
+# e-mail que só cita "nota fiscal" de passagem no corpo do documento.
+_NOTA_MARCADORES_APOIO = [
+    re.compile(r"prestador\s+d[eo]\s+servi[cç]os?", re.I),
+    re.compile(r"tomador\s+d[eo]\s+servi[cç]os?", re.I),
+    re.compile(r"\biss(?:qn)?\b", re.I),
+    re.compile(r"c[óo]digo\s+de\s+verifica[cç][ãa]o", re.I),
+    re.compile(r"discrimina[cç][ãa]o\s+d[oa]s?\s+servi[cç]os?", re.I),
+    re.compile(r"munic[íi]pio\s+prestador", re.I),
+]
+
+_BOLETO_MARCADORES = [
+    re.compile(r"linha\s+digit[áa]vel", re.I),
+    re.compile(r"c[óo]digo\s+de\s+barras", re.I),
+    re.compile(r"benefici[áa]rio", re.I),
+    re.compile(r"nosso\s+n[úu]mero", re.I),
+    re.compile(r"cedente", re.I),
+    re.compile(r"sacado", re.I),
+    re.compile(r"ficha\s+de\s+compensa[cç][ãa]o", re.I),
+    re.compile(r"vencimento", re.I),
+]
+
+
+def looks_like_invoice(pdf_text: str) -> bool:
+    """O texto do PDF parece ser uma nota fiscal de serviço?
+
+    Exige um marcador forte (o documento se identifica como nota/NFS-e/
+    DANFE/RPS) E um de apoio (prestador/tomador/ISS/código de verificação),
+    para não confundir com um contrato ou e-mail que apenas menciona a
+    palavra "nota fiscal" no meio do texto.
+    """
+    if not pdf_text:
+        return False
+    tem_marcador = any(p.search(pdf_text) for p in _NOTA_MARCADORES)
+    tem_apoio = any(p.search(pdf_text) for p in _NOTA_MARCADORES_APOIO)
+    return tem_marcador and tem_apoio
+
+
+def looks_like_boleto(pdf_text: str) -> bool:
+    """O texto do PDF parece ser um boleto bancário? Exige pelo menos dois
+    marcadores típicos, já que palavras como "vencimento" e "beneficiário"
+    aparecem isoladas em outros documentos."""
+    if not pdf_text:
+        return False
+    return sum(1 for p in _BOLETO_MARCADORES if p.search(pdf_text)) >= 2
+
 
 def sanitize_filename(name: str) -> str:
     name = _INVALID_FILENAME_CHARS.sub("", name).strip()
@@ -309,9 +369,3 @@ def build_fornecedor_filename(
     return sanitize_filename(base) + ext
 
 
-def is_boleto_filename(filename: str) -> bool:
-    """Mesmo critério de is_relevant_attachment para imagem (boleto/
-    comprovante/recibo) — sem isso, um comprovante em imagem passava pelo
-    filtro de anexo relevante mas depois era tratado como se fosse a nota
-    fiscal em si, em vez do boleto/comprovante."""
-    return bool(_BOLETO_HINT_RE.search(filename))

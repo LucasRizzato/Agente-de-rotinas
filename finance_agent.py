@@ -39,8 +39,9 @@ from finance_extractor import (
     extract_reference_period,
     extract_sender_name,
     extract_valor_liquido,
-    is_boleto_filename,
     is_relevant_attachment,
+    looks_like_boleto,
+    looks_like_invoice,
     month_folder_name,
 )
 from pdf_reader import extract_pdf_text
@@ -91,13 +92,43 @@ def _download_attachments(service, message_id: str, attachments: list[dict]) -> 
     }
 
 
-def _first_pdf_text(attachments: list[dict], attachment_data: dict) -> str:
+def _classify_attachments(attachments: list[dict], attachment_data: dict) -> list[dict]:
+    """Abre cada anexo e decide o que ele é de fato, pelo conteúdo — não pela
+    extensão. Sem isso, qualquer PDF (contrato, proposta, apresentação,
+    assinatura de e-mail) acabava salvo como se fosse nota fiscal, sujando as
+    pastas.
+
+    Cada item ganha um "kind":
+      nota     — é uma nota fiscal
+      boleto   — é um boleto bancário
+      ilegivel — PDF sem texto extraível (provavelmente escaneado): não dá
+                 para confirmar, então guardamos assim mesmo e sinalizamos,
+                 em vez de arriscar descartar uma nota de verdade
+      lixo     — PDF legível que claramente não é nota nem boleto: descartado
+    """
+    classificados = []
     for a in attachments:
-        if a["filename"].lower().endswith(".pdf"):
-            text = extract_pdf_text(attachment_data[a["filename"]])
-            if text:
-                return text
-    return ""
+        filename = a["filename"]
+        data = attachment_data[filename]
+
+        if not filename.lower().endswith(".pdf"):
+            # Imagem só chega aqui se o nome já indicava boleto/comprovante
+            # (is_relevant_attachment), então confiamos nesse indício.
+            kind = "boleto"
+            text = ""
+        else:
+            text = extract_pdf_text(data)
+            if not text:
+                kind = "ilegivel"
+            elif looks_like_invoice(text):
+                kind = "nota"
+            elif looks_like_boleto(text):
+                kind = "boleto"
+            else:
+                kind = "lixo"
+
+        classificados.append({**a, "text": text, "kind": kind})
+    return classificados
 
 
 def _unique_path(folder: Path, filename: str) -> Path:
@@ -162,19 +193,47 @@ def process_pj_inbox(service, dry_run: bool) -> int:
         else:
             # baixa antes de decidir a pasta: o mês vem de dentro da nota
             attachment_data = _download_attachments(service, info["id"], attachments)
-            pdf_text = _first_pdf_text(attachments, attachment_data)
+            classificados = _classify_attachments(attachments, attachment_data)
+
+            # Tudo que chega neste e-mail é nota de colaborador PJ; o que não
+            # for nota (contrato, proposta, assinatura em PDF) é descartado
+            # para não sujar a pasta.
+            for a in classificados:
+                if a["kind"] in ("lixo", "boleto"):
+                    print(f"  [IGNORADO] '{a['filename']}' de {colaborador} — não é nota fiscal")
+            notas = [a for a in classificados if a["kind"] in ("nota", "ilegivel")]
+
+            if not notas:
+                month_folder = month_folder_name(received)
+                print(f"  [AVISO] Nenhum anexo é nota fiscal: '{info['subject']}' de {colaborador}")
+                append_row(
+                    wb, categoria=CATEGORIA_PJ, mes_pasta=month_folder, nome=colaborador,
+                    numero_nota="VERIFICAR", data_recebimento=received,
+                    observacoes="Nenhum anexo reconhecido como nota fiscal — verificar manualmente",
+                    assunto=info["subject"], gmail_message_id=info["id"],
+                )
+                if not dry_run:
+                    save(wb, sheet_path)
+                    gmail_client.mark_processed(service, info["id"], LABEL_PJ_PROCESSADA)
+                processed += 1
+                continue
+
+            pdf_text = next((a["text"] for a in notas if a["text"]), "")
 
             referencia = extract_reference_period(pdf_text, info["subject"], body, fallback=received)
             month_folder = month_folder_name(referencia)
             folder = Path(base_path) / month_folder
 
             numero = extract_invoice_number(
-                info["subject"], body, [a["filename"] for a in attachments], pdf_text=pdf_text
+                info["subject"], body, [a["filename"] for a in notas], pdf_text=pdf_text
             )
             valor_liquido = extract_valor_liquido(pdf_text, info["subject"], body)
-            obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
 
-            for attachment in attachments:
+            obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
+            if any(a["kind"] == "ilegivel" for a in notas):
+                obs = (obs + " | " if obs else "") + "PDF sem texto (escaneado?) — confirmar se é nota fiscal"
+
+            for attachment in notas:
                 ext = Path(attachment["filename"]).suffix or ".pdf"
                 filename = build_pj_filename(colaborador, numero, ext)
 
@@ -246,7 +305,34 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
         else:
             # baixa antes de decidir a pasta: o mês vem de dentro da nota
             attachment_data = _download_attachments(service, info["id"], attachments)
-            pdf_text = _first_pdf_text(attachments, attachment_data)
+            classificados = _classify_attachments(attachments, attachment_data)
+
+            for a in classificados:
+                if a["kind"] == "lixo":
+                    print(f"  [IGNORADO] '{a['filename']}' de {fornecedor} — não é nota nem boleto")
+            documentos = [a for a in classificados if a["kind"] != "lixo"]
+
+            if not documentos:
+                month_folder = month_folder_name(received)
+                print(f"  [AVISO] Nenhum anexo é nota ou boleto: '{info['subject']}' de {fornecedor}")
+                append_row(
+                    wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
+                    numero_nota="VERIFICAR", data_recebimento=received,
+                    observacoes="Nenhum anexo reconhecido como nota ou boleto — verificar manualmente",
+                    assunto=info["subject"], gmail_message_id=info["id"],
+                )
+                if not dry_run:
+                    save(wb, sheet_path)
+                    gmail_client.mark_processed(service, info["id"], LABEL_FORNECEDOR_PROCESSADA)
+                processed += 1
+                continue
+
+            # Prefere o texto de uma nota (não de um boleto) como fonte da
+            # competência, do número e do valor.
+            pdf_text = next(
+                (a["text"] for a in documentos if a["kind"] == "nota" and a["text"]),
+                next((a["text"] for a in documentos if a["text"]), ""),
+            )
 
             referencia = extract_reference_period(pdf_text, info["subject"], body, fallback=received)
             month_folder = month_folder_name(referencia)
@@ -254,15 +340,15 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
             folder = Path(base_path) / month_folder
 
             numero = extract_invoice_number(
-                info["subject"], body, [a["filename"] for a in attachments], pdf_text=pdf_text
+                info["subject"], body, [a["filename"] for a in documentos], pdf_text=pdf_text
             )
             valor_liquido = extract_valor_liquido(pdf_text, info["subject"], body)
             nf_filename = ""
             boleto_filename = ""
 
-            for attachment in attachments:
+            for attachment in documentos:
                 ext = Path(attachment["filename"]).suffix or ".pdf"
-                is_boleto = is_boleto_filename(attachment["filename"])
+                is_boleto = attachment["kind"] == "boleto"
                 filename = build_fornecedor_filename(fornecedor, numero, mes_emissao, ext, is_boleto)
 
                 print(f"  → Fornecedor: {fornecedor} | {month_folder} | {filename}")
@@ -278,6 +364,8 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
                     nf_filename = filename
 
             obs = "" if numero != "VERIFICAR" else "Não foi possível identificar o número da nota"
+            if any(a["kind"] == "ilegivel" for a in documentos):
+                obs = (obs + " | " if obs else "") + "PDF sem texto (escaneado?) — confirmar o documento"
             append_row(
                 wb, categoria=CATEGORIA_FORNECEDOR, mes_pasta=month_folder, nome=fornecedor,
                 numero_nota=numero, valor_liquido=valor_liquido, data_recebimento=received,
