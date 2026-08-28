@@ -5,13 +5,11 @@ Agente Financeiro Perinity — lê o Gmail e:
      -> organiza em pastas por mês e registra na planilha de controle.
   2. Notas/boletos de fornecedores (para: financeiro@perinity.com)
      -> organiza em pastas por mês e registra na mesma planilha.
-  3. Demais e-mails que pareçam exigir uma ação do Lucas
-     -> resumo enviado por Telegram.
 
 Uso:
-    python finance_agent.py                  # roda as 3 rotinas
+    python finance_agent.py                  # roda as 2 rotinas
     python finance_agent.py --dry-run         # simula, não grava nada
-    python finance_agent.py --only pj         # roda só uma rotina (pj/fornecedores/diversos)
+    python finance_agent.py --only pj         # roda só uma rotina (pj/fornecedores)
 """
 import argparse
 import os
@@ -56,7 +54,6 @@ from spreadsheet import (
 
 LABEL_PJ_PROCESSADA = "Guardiao-NF-PJ-Processada"
 LABEL_FORNECEDOR_PROCESSADA = "Guardiao-NF-Fornecedor-Processada"
-LABEL_DIVERSOS_REVISADO = "Guardiao-Revisado"
 
 
 def _load_env():
@@ -68,10 +65,8 @@ def _load_env():
 
 
 def _check_env(dry_run: bool):
-    required = ["ANTHROPIC_API_KEY", "PJ_INBOX_ADDRESS", "FORNECEDOR_INBOX_ADDRESS",
+    required = ["PJ_INBOX_ADDRESS", "FORNECEDOR_INBOX_ADDRESS",
                 "PJ_NOTAS_BASE_PATH", "FORNECEDOR_NOTAS_BASE_PATH", "CONTROL_SHEET_PATH"]
-    if not dry_run:
-        required += ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         print(f"[ERRO] Variáveis de ambiente faltando: {', '.join(missing)}")
@@ -382,73 +377,12 @@ def process_fornecedor_inbox(service, dry_run: bool) -> int:
     return processed
 
 
-# ── Regra 3: assuntos diversos que exigem ação ───────────────────────────────
-
-def process_diversos(service, dry_run: bool) -> tuple[int, int]:
-    import anthropic
-
-    from email_classifier import classify_email
-    from notifier import send_message
-
-    pj_address = os.environ["PJ_INBOX_ADDRESS"]
-    fornecedor_address = os.environ["FORNECEDOR_INBOX_ADDRESS"]
-
-    query = (
-        f'in:inbox -to:{pj_address} -to:{fornecedor_address} '
-        f'-label:"{LABEL_DIVERSOS_REVISADO}"'
-    )
-    print(f"  → busca no Gmail: {query}")
-    messages = gmail_client.list_messages(service, query, _max_results())
-    print(f"  → {len(messages)} e-mail(s) novo(s) para triagem")
-
-    scanned = 0
-    notified = 0
-    for stub in messages:
-        message = gmail_client.get_message(service, stub["id"])
-        info = gmail_client.message_summary(message)
-        body = gmail_client.get_body_text(message)
-
-        try:
-            result = classify_email(info["subject"], info["from"], info["to"], body)
-        except anthropic.AuthenticationError:
-            print(
-                "  [ERRO] Chave da Anthropic invalida/revogada — parando a triagem de "
-                "assuntos diversos aqui (confira ANTHROPIC_API_KEY no .env). "
-                "As notas fiscais de PJ e fornecedores ja processadas continuam válidas."
-            )
-            break
-        except Exception as e:
-            print(f"  [AVISO] Falha ao classificar '{info['subject']}': {e} — pulando, tenta de novo na próxima execução")
-            continue
-        scanned += 1
-
-        if result["precisa_acao"]:
-            print(f"  → AÇÃO NECESSÁRIA: {info['subject']}")
-            texto = (
-                f"📩 *Novo e-mail que pode precisar da sua atenção*\n\n"
-                f"*De:* {info['from']}\n"
-                f"*Assunto:* {info['subject']}\n\n"
-                f"{result['resumo']}"
-            )
-            if not dry_run:
-                send_message(texto)
-                # Mantém como não lido: é um lembrete visual até você tratar.
-                gmail_client.mark_processed(service, info["id"], LABEL_DIVERSOS_REVISADO, mark_as_read=False)
-            notified += 1
-        else:
-            print(f"  → sem ação: {info['subject']}")
-            if not dry_run:
-                gmail_client.mark_processed(service, info["id"], LABEL_DIVERSOS_REVISADO, mark_as_read=True)
-
-    return scanned, notified
-
-
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def _run_routine(nome: str, fn):
-    """Roda uma rotina isolada das outras: se uma falhar (ex: planilha
-    aberta no Excel, erro de rede), as outras duas continuam rodando
-    normalmente em vez do programa inteiro parar."""
+    """Roda uma rotina isolada da outra: se uma falhar (ex: planilha
+    aberta no Excel, erro de rede), a outra continua rodando normalmente
+    em vez do programa inteiro parar."""
     try:
         fn()
     except PermissionError as e:
@@ -470,19 +404,15 @@ def run(dry_run: bool, only: str):
     print(f"{'='*50}")
 
     if only in ("all", "pj"):
-        print("\n[1/3] Notas fiscais de colaboradores PJ...")
+        print("\n[1/2] Notas fiscais de colaboradores PJ...")
         _run_routine("Notas fiscais de colaboradores PJ", lambda: process_pj_inbox(service, dry_run))
 
     if only in ("all", "fornecedores"):
-        print("\n[2/3] Notas e boletos de fornecedores...")
+        print("\n[2/2] Notas e boletos de fornecedores...")
         _run_routine("Notas e boletos de fornecedores", lambda: process_fornecedor_inbox(service, dry_run))
 
-    if only in ("all", "diversos"):
-        print("\n[3/3] Triagem de assuntos diversos...")
-        _run_routine("Triagem de assuntos diversos", lambda: process_diversos(service, dry_run))
-
     if dry_run:
-        print("\n[DRY RUN] Nenhum arquivo, planilha, label ou mensagem foi alterado.")
+        print("\n[DRY RUN] Nenhum arquivo, planilha ou label foi alterado.")
     print("\n✅ Concluído.\n")
 
 
@@ -490,8 +420,8 @@ def main():
     parser = argparse.ArgumentParser(description="Agente Financeiro Perinity (Gmail)")
     parser.add_argument("--dry-run", action="store_true", help="Simula sem gravar nada")
     parser.add_argument(
-        "--only", choices=["all", "pj", "fornecedores", "diversos"], default="all",
-        help="Roda apenas uma das três rotinas",
+        "--only", choices=["all", "pj", "fornecedores"], default="all",
+        help="Roda apenas uma das duas rotinas",
     )
     args = parser.parse_args()
 

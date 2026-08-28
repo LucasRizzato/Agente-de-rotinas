@@ -41,9 +41,9 @@ echo   d. Baixe o JSON e salve como "credentials.json" nesta pasta
 echo      ^(ou aponte GMAIL_CREDENTIALS_PATH no .env para o caminho escolhido^)
 echo.
 echo   ** IMPORTANTE ** Preencha tambem no .env:
-echo      - ANTHROPIC_API_KEY
-echo      - TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID ^(rode python bot.py e envie /start^)
 echo      - Os caminhos das pastas de notas fiscais e da planilha de controle
+echo      - Os enderecos de e-mail monitorados
+echo   ^(o agente financeiro nao usa mais chave da Anthropic nem Telegram^)
 echo.
 pause
 
